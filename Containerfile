@@ -13,8 +13,10 @@
 # such builds only "work by accident" through implicit declarations.
 FROM docker.io/archlinux:latest
 
+# gcc: winegcc is a wrapper over the NATIVE compiler (the forwarder
+# is a winelib ELF); mingw-w64-gcc does not pull it in.
 RUN pacman -Syu --noconfirm --needed \
-        wine mingw-w64-gcc sbcl make git \
+        gcc wine mingw-w64-gcc sbcl make git \
         aarch64-linux-gnu-gcc qemu-user \
     && pacman -Scc --noconfirm
 
