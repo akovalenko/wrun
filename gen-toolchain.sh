@@ -13,13 +13,21 @@ gcc_path=$(command -v "$TRIPLET-gcc") || {
 tooldir=$(dirname "$gcc_path")
 
 mkdir -p "$HERE/toolchain"
+# Wrapper scripts, NOT symlinks: gcc invoked through a foreign-named
+# symlink loses its cc1 under the forwarder environment (argv[0]-based
+# subprogram discovery); `exec <absolute path>` keeps the driver
+# self-locating regardless of caller and environment.
+wrap() {
+    printf '#!/bin/sh\nexec %s "$@"\n' "$1" > "$HERE/toolchain/$2"
+    chmod +x "$HERE/toolchain/$2"
+}
 for tool in "$tooldir/$TRIPLET"-*; do
     [ -e "$tool" ] || continue
     base=${tool##*/}
-    ln -sf "$tool" "$HERE/toolchain/${base#"$TRIPLET"-}"
+    wrap "$tool" "${base#"$TRIPLET"-}"
 done
 # make-target-contrib.sh defaults CC to plain "cc" on some paths
-ln -sf "$gcc_path" "$HERE/toolchain/cc"
+wrap "$gcc_path" cc
 
 # cat wrapper: the contrib build concatenates module fasls with a
 # Unix-side cat over a file list PRINTED BY THE TARGET LISP — under
