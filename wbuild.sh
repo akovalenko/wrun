@@ -20,6 +20,15 @@ case "${HOME:-}" in
 esac
 : "${WINEPREFIX:=$HOME/.wine-wrun}"
 export WINEPREFIX
+# Modern wine keeps the wineserver socket under XDG_RUNTIME_DIR and
+# complains when it is unset/invalid (no /run/user/<uid> in a
+# container).  Per the XDG spec it must be OURS and mode 0700.
+if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "$XDG_RUNTIME_DIR" ] || [ ! -w "$XDG_RUNTIME_DIR" ]; then
+    XDG_RUNTIME_DIR="$HOME/.xdg-run"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+    export XDG_RUNTIME_DIR
+fi
 
 # Cross toolchain under bare names (gcc, ld, windres, ...) — shadows
 # the host toolchain for the duration of the build.
