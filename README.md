@@ -58,6 +58,24 @@ Useful knobs (environment): `WINEPREFIX` (defaults to `~/.wine`),
 `WINE`, `WINEDEBUG` (defaults to `-all`), `WRUN_TRIPLET` (defaults to
 `x86_64-w64-mingw32`), `SBCL_MAKE_JOBS=-j4`.
 
+## Container (fresh toolchain, reproducible)
+
+The included `Containerfile` builds an Arch-based image with current
+wine, mingw-w64, a host SBCL and the qemu-user toolchain:
+
+```sh
+podman build -t wrun .
+podman run --rm -v ~/src/sbcl:/src --userns=keep-id wrun /src
+```
+
+Rootless podman suffices: no `--privileged`, no binfmt_misc — target
+binaries always run through `SBCL_RUNNER`, never via the host kernel.
+`--userns=keep-id` keeps files created in the mounted tree owned by
+you.  Old mingw-w64 (e.g. Ubuntu LTS) lacks declarations for newer
+win32 APIs (`WaitOnAddress` & co.) and builds them "by accident" via
+implicit declarations; current gcc treats those as hard errors, so
+the fresh image doubles as a correctness check.
+
 ## The same runner hook without Wine
 
 `SBCL_RUNNER` is emulator-agnostic.  For a full foreign-architecture
