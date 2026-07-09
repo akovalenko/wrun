@@ -12,8 +12,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 tree="$1"; shift
 
 # Under rootless podman with --userns=keep-id the user has no passwd
-# entry: HOME comes out unset or "/" and wine would try /.wine.
-case "${HOME:-}" in ""|/) HOME=/tmp; export HOME ;; esac
+# entry: HOME comes out unset or "/" and wine would try /.wine.  The
+# replacement must be a directory OWNED by the build uid — wine
+# refuses to create a prefix under root-owned /tmp itself.
+case "${HOME:-}" in
+    ""|/) HOME=/tmp/wrun-home; mkdir -p "$HOME"; export HOME ;;
+esac
 : "${WINEPREFIX:=$HOME/.wine-wrun}"
 export WINEPREFIX
 
