@@ -11,6 +11,12 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 tree="$1"; shift
 
+# Under rootless podman with --userns=keep-id the user has no passwd
+# entry: HOME comes out unset or "/" and wine would try /.wine.
+case "${HOME:-}" in ""|/) HOME=/tmp; export HOME ;; esac
+: "${WINEPREFIX:=$HOME/.wine-wrun}"
+export WINEPREFIX
+
 # Cross toolchain under bare names (gcc, ld, windres, ...) — shadows
 # the host toolchain for the duration of the build.
 PATH="$HERE/toolchain:$PATH"
