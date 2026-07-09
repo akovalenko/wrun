@@ -20,10 +20,12 @@ Three small mechanisms, one per process-boundary:
    target lisp* back to Unix tools.  `<tool>.exe` symlinks (in a
    directory listed in `WINEPATH`) all point at the forwarder, which
    strips the directory and `.exe` from `argv[0]`, converts
-   `Z:\...`-style absolute path arguments to Unix form
-   (`wine_get_unix_file_name`), and `posix_spawnp`s the real tool.
-   The default manifest (`shims.list`) contains just the cross gcc
-   (for sb-grovel) and `cat`.
+   `Z:\...`-style absolute path arguments to Unix form (resolving
+   `$WINEPREFIX/dosdevices/<drive>:` — pure POSIX, so the forwarder
+   builds with bare winegcc, no wine headers needed), and
+   `posix_spawnp`s the real tool.  The default manifest
+   (`shims.list`) contains just the compiler names sb-grovel may ask
+   for and `cat`.
 3. **`toolchain/`**: bare-named symlinks (`gcc`, `ld`, `windres`,
    `ar`, ...) to the mingw-w64 cross tools, prepended to `PATH` for
    the duration of the build.  One directory uniformly covers every

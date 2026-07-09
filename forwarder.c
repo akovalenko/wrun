@@ -1,6 +1,6 @@
 /* forwarder — winelib bridge from the Wine world to build-host tools.
  *
- * Build (needs winegcc from wine devel tools):
+ * Build (bare winegcc, no wine headers needed — pure POSIX source):
  *     winegcc -o a.out forwarder.c        # produces a.out + a.out.so
  *
  * Install: symlink <tool>.exe -> a.out.so (see gen-shims.sh) in a
@@ -9,12 +9,15 @@
  * winelib program instead.  It:
  *   1. strips the directory and ".exe" suffix from argv[0],
  *   2. rewrites Windows-absolute-path arguments ("Z:\home\...") into
- *      Unix form via wine_get_unix_file_name(),
+ *      Unix form by resolving $WINEPREFIX/dosdevices/<drive>:,
  *   3. posix_spawnp()s the real <tool> from the Unix PATH, forwarding
  *      stdio and returning its exit status.
  *
  * Descendant of Anton Kovalenko's runp/wrapper.c; the path
  * translation used to live in per-tool shell shims on the Unix side.
+ * Deliberately no win32 API use (wine_get_unix_file_name would do
+ * the same job but needs wine's windows.h, absent in runtime-only
+ * wine packages); dosdevices symlinks carry the same mapping.
  */
 #include <stdio.h>
 #include <spawn.h>
@@ -22,41 +25,63 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <windows.h>
-
-#ifndef CP_UNIXCP                /* wine-specific; absent in plain w32api */
-#define CP_UNIXCP 65010
-#endif
-
-static char * (CDECL *p_wine_get_unix_file_name)(LPCWSTR);
-
-static void find_translator(void)
+static const char *wineprefix(void)
 {
-    HMODULE k32 = GetModuleHandleA("kernel32.dll");
-    if (k32)
-        p_wine_get_unix_file_name =
-            (void *)GetProcAddress(k32, "wine_get_unix_file_name");
+    static char buf[PATH_MAX];
+    const char *p = getenv("WINEPREFIX");
+    const char *home;
+
+    if (p && *p)
+        return p;
+    home = getenv("HOME");
+    if (!home)
+        return NULL;
+    snprintf(buf, sizeof buf, "%s/.wine", home);
+    return buf;
 }
 
-/* "Z:\foo" / "c:/bar" -> "/unix/path"; anything else unchanged. */
+/* "Z:\foo" / "c:/bar" -> Unix path per dosdevices; else unchanged. */
 static char *maybe_translate(char *arg)
 {
-    WCHAR wbuf[4096];
-    char *unix_name;
+    const char *prefix;
+    char link[PATH_MAX], target[PATH_MAX];
+    char *out, *p;
+    ssize_t n;
+    size_t outlen;
 
     if (!(isalpha((unsigned char)arg[0]) && arg[1] == ':'
           && (arg[2] == '\\' || arg[2] == '/')))
         return arg;
-    if (!p_wine_get_unix_file_name)
+    prefix = wineprefix();
+    if (!prefix)
         return arg;
-    if (!MultiByteToWideChar(CP_UNIXCP, 0, arg, -1, wbuf, 4096))
+    snprintf(link, sizeof link, "%s/dosdevices/%c:",
+             prefix, tolower((unsigned char)arg[0]));
+    n = readlink(link, target, sizeof target - 1);
+    if (n < 0)
         return arg;
-    unix_name = p_wine_get_unix_file_name(wbuf);
-    return unix_name ? unix_name : arg;
+    target[n] = '\0';
+    while (n > 1 && target[n-1] == '/')
+        target[--n] = '\0';
+
+    outlen = strlen(prefix) + sizeof "/dosdevices/" + n + strlen(arg + 2) + 1;
+    out = malloc(outlen);
+    if (!out)
+        return arg;
+    if (target[0] == '/')
+        snprintf(out, outlen, "%s%s",
+                 strcmp(target, "/") ? target : "", arg + 2);
+    else /* relative link, e.g. c: -> ../drive_c */
+        snprintf(out, outlen, "%s/dosdevices/%s%s", prefix, target, arg + 2);
+    for (p = out; *p; p++)
+        if (*p == '\\')
+            *p = '/';
+    return out;
 }
 
 int main(int argc, char *argv[], char *envp[])
@@ -82,7 +107,6 @@ int main(int argc, char *argv[], char *envp[])
     me[dot] = '\0';
     argv[0] = me + slash + 1;
 
-    find_translator();
     for (i = 1; i < argc; i++)
         argv[i] = maybe_translate(argv[i]);
 
