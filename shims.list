@@ -1,0 +1,7 @@
+# Tools the target lisp spawns with run-program during the build.
+# sb-grovel invokes $CC — with the toolchain dir on PATH that is
+# plain "gcc"/"cc" resolving to the cross compiler:
+gcc
+cc
+# handy for tests / interactive use:
+cat

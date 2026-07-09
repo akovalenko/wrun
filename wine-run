@@ -1,0 +1,11 @@
+#!/bin/sh
+# wine-run — SBCL_RUNNER for wine-hosted target phases.
+#
+# Usage: SBCL_RUNNER=/path/to/wine-run  (see wbuild.sh)
+# Runs a freshly-built Windows target binary under Wine, resolving the
+# ".exe" suffix the build scripts do not know about.
+t="$1"; shift
+[ -f "$t" ] || t="$t.exe"
+WINEDEBUG="${WINEDEBUG:--all}"
+export WINEDEBUG
+exec "${WINE:-wine}" "$t" "$@"
