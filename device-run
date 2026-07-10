@@ -29,6 +29,12 @@
 #   WRUN_DEVICE_DIR  remote tree dir, relative to remote HOME   [wrun/<basename>]
 #   WRUN_DEVICE_CC   C compiler to use ON the device            [clang]
 #   WRUN_SSH_CTL     ssh ControlPath pattern                    [/tmp/wrun-ssh-<uid>-%C]
+#   WRUN_STATS       append per-invocation timing lines to
+#                    this file: "<push-ms> <run-ms> <pull-ms>
+#                    <argv0>" (push includes the HOME/clock
+#                    roundtrip; run still carries the mux'd ssh
+#                    channel latency).  Lets a build timing
+#                    subtract the network share afterwards.      [off]
 #
 # The remote process runs with SBCL_RUNNER unset: on the device the
 # target binaries are native, so the in-lisp grovel helpers
@@ -52,6 +58,9 @@ case "$PWD" in
     "$WRUN_TREE"/*) rel=${PWD#"$WRUN_TREE"/} ;;
     *) echo "device-run: cwd $PWD is outside WRUN_TREE=$WRUN_TREE" >&2; exit 70 ;;
 esac
+
+now_ms() { date +%s%3N; }
+t0=$(now_ms)
 
 # One roundtrip: ensure the remote dir exists, learn the remote HOME
 # (needed to translate absolute host paths in the argv) and the remote
@@ -93,11 +102,19 @@ for a in "$@"; do
     cmd="$cmd '$(quote "$(xlate "$a")")'"
 done
 
+t1=$(now_ms)
+
 rc=0
 $SSH "$WRUN_DEVICE" "$cmd" || rc=$?
+
+t2=$(now_ms)
 
 # Pull even after a failed run: partial outputs aid the post-mortem.
 # -u: never revert files the host wrote during the run (see header).
 rsync -au $excl -e "$SSH" "$WRUN_DEVICE:$rbase"/ "$WRUN_TREE"/ || rc=$?
+
+if [ -n "${WRUN_STATS:-}" ]; then
+    echo "$((t1-t0)) $((t2-t1)) $(($(now_ms)-t2)) $1" >> "$WRUN_STATS"
+fi
 
 exit $rc

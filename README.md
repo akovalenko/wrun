@@ -233,7 +233,20 @@ Details worth knowing:
   hard-fails on host/device skew above 30 s — keep the device
   NTP-synced (fasl mtimes carry the device clock anyway);
 - `WRUN_SSH_OPTS` values with embedded spaces in paths are not
-  supported (the runner word-splits them).
+  supported (the runner word-splits them);
+- `WRUN_STATS=<file>` appends one line per invocation —
+  `<push-ms> <run-ms> <pull-ms> <argv0>` — so a build timing can
+  subtract the network share (stop worrying whether the link was
+  wifi or lte).  Summarize with:
+
+  ```sh
+  awk '{p+=$1;r+=$2;l+=$3;n++} END{printf \
+      "n=%d push=%.1fs run=%.1fs pull=%.1fs sync-total=%.1fs\n", \
+      n, p/1e3, r/1e3, l/1e3, (p+l)/1e3}' "$WRUN_STATS"
+  ```
+
+  `run` still contains the mux'd ssh channel latency (hundreds of
+  ms per invocation), which no realistic link turns into minutes.
 
 ## Status / provenance
 
