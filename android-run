@@ -1,0 +1,17 @@
+#!/bin/sh
+# android-run — SBCL_RUNNER for Android (bionic) target phases.
+#
+# Usage: SBCL_RUNNER=/path/to/android-run  (see abuild.sh)
+# Runs a freshly-built bionic binary under qemu-user against a donor
+# Android runtime tree: WRUN_BIONIC points at a directory containing
+# system/bin/linker64 and system/lib64/*.so (e.g. termux's aosp-libs
+# package unpacked, or an emulator system image).  qemu's -L prefix
+# covers both the PT_INTERP lookup and the dynamic linker's absolute
+# /system/... opens — qemu tries the prefix first for every guest
+# path.  ANDROID_ROOT/ANDROID_DATA are what bionic expects to find in
+# the environment (guest env is simply the host env under qemu-user).
+ANDROID_ROOT=/system
+ANDROID_DATA=/data
+export ANDROID_ROOT ANDROID_DATA
+exec "${WRUN_QEMU:-qemu-aarch64}" \
+     -L "${WRUN_BIONIC:?donor Android runtime root (see abuild.sh)}" "$@"

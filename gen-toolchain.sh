@@ -10,6 +10,63 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TRIPLET="${WRUN_TRIPLET:-x86_64-w64-mingw32}"
 FARM="$HERE/toolchain/$TRIPLET"
 
+# Android triplets come from the NDK: one clang driver per (triplet,
+# API level) plus llvm binutils, no GNU-style $TRIPLET-* tools at all.
+# The farm path stays per-triplet only, so the API level is baked into
+# the wrappers — rerun this script to change WRUN_ANDROID_API for a
+# triplet (same caveat as WRUN_SYSROOT below).
+case "$TRIPLET" in *-android*)
+    [ -n "${WRUN_NDK:-}" ] || {
+        echo "gen-toolchain.sh: WRUN_NDK (NDK root) is required for $TRIPLET" >&2
+        exit 1; }
+    API="${WRUN_ANDROID_API:-26}"
+    ndkbin="$WRUN_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+    driver="$ndkbin/$TRIPLET$API-clang"
+    [ -x "$driver" ] || {
+        echo "gen-toolchain.sh: no $driver in the NDK" >&2
+        exit 1; }
+    mkdir -p "$FARM"
+    # Config.*-linux links with -lpthread/-lrt (bionic keeps both in
+    # libc); if this NDK ships no stub archives for them, provide
+    # empty ones and bake -L into the driver wrappers.
+    sysdir="$WRUN_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$TRIPLET"
+    extra=
+    if [ ! -e "$sysdir/libpthread.a" ] && [ ! -e "$sysdir/$API/libpthread.a" ]; then
+        mkdir -p "$FARM/stubs"
+        "$ndkbin/llvm-ar" rcs "$FARM/stubs/libpthread.a"
+        "$ndkbin/llvm-ar" rcs "$FARM/stubs/librt.a"
+        extra=" -L$FARM/stubs"
+    fi
+    # The C-level glibc-isms "linux flavor against bionic" trips over
+    # (upstream guards both with the :android Lisp feature we
+    # deliberately don't set; a full include-sweep of the runtime
+    # sources against the NDK sysroot found nothing else):
+    #
+    # - getdtablesize(), which bionic never had.  A function-like
+    #   macro is the narrowest plug: safe to define everywhere,
+    #   expands only at the call site (run-program.c, which includes
+    #   <unistd.h> for sysconf anyway), and unlike -include it cannot
+    #   corrupt .S preprocessing.
+    # - <sys/termios.h> (grovel-headers.c), which glibc itself
+    #   defines as exactly '#include <termios.h>' — a one-line compat
+    #   header in the farm.
+    extra="$extra -D'getdtablesize()=((int)sysconf(_SC_OPEN_MAX))'"
+    mkdir -p "$FARM/include/sys"
+    printf '#include <termios.h>\n' > "$FARM/include/sys/termios.h"
+    extra="$extra -isystem $FARM/include"
+    emit() {
+        printf '#!/bin/sh\nexec %s%s "$@"\n' "$2" "$3" > "$FARM/$1"
+        chmod +x "$FARM/$1"
+    }
+    for n in gcc cc clang;       do emit "$n" "$driver"   "$extra"; done
+    for n in g++ c++ clang++;    do emit "$n" "${driver}++" "$extra"; done
+    for t in ar ranlib nm strip objcopy objdump readelf strings; do
+        [ -x "$ndkbin/llvm-$t" ] && emit "$t" "$ndkbin/llvm-$t" ""
+    done
+    ls "$FARM"
+    exit 0
+;; esac
+
 # Locate the cross gcc: the bare triplet name, or the highest
 # versioned one (Ubuntu ships only aarch64-linux-gnu-gcc-12 & co.).
 gcc_path=$(command -v "$TRIPLET-gcc") || {

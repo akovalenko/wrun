@@ -1,0 +1,74 @@
+# Containerfile.android — Android (bionic) build box: the NDK clang
+# is the cross compiler, qemu-user is the target "CPU", and termux's
+# aosp-libs package provides the donor Android runtime the freshly
+# built binaries run against.  A pure upstream "linux flavor against
+# bionic" build — no --with-android, no adb, no device; see abuild.sh.
+#
+#   podman build -f Containerfile.android -t wrun-android .
+#   podman run --rm -v ~/src/sbcl:/src --userns=keep-id wrun-android /src
+#
+# Debian base throughout: the static qemu-user build needs Debian
+# anyway (static glib — same rationale as the portable image), and
+# Debian 12's glibc 2.36 runs the release host-SBCL binary directly
+# (no seed bootstrap dance: 2.5.0 wants GLIBC_2.34).
+
+FROM docker.io/library/debian:12-slim AS qemu-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git ca-certificates build-essential pkg-config python3-venv \
+        ninja-build libglib2.0-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 -b v10.2.4 https://github.com/qemu/qemu /tmp/qemu \
+    && cd /tmp/qemu \
+    && ./configure --target-list=aarch64-linux-user \
+                   --disable-docs --disable-tools --static \
+    && ninja -C build qemu-aarch64
+
+FROM docker.io/library/debian:12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl unzip bzip2 make \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=qemu-builder /tmp/qemu/build/qemu-aarch64 /usr/local/bin/qemu-aarch64
+
+# The NDK: clang cross drivers + llvm binutils + bionic sysroot.
+RUN curl -fL -o /tmp/ndk.zip \
+        https://dl.google.com/android/repository/android-ndk-r29-linux.zip \
+    && unzip -q /tmp/ndk.zip -d /opt \
+    && rm /tmp/ndk.zip
+
+# Donor Android runtime: bionic linker64 + system libraries from
+# termux's aosp-libs package (Android 9 / API 28 — the ceiling for
+# WRUN_ANDROID_API), laid out as the /system tree the linker expects.
+RUN curl -fL -o /tmp/Packages.gz \
+        https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz \
+    && gunzip /tmp/Packages.gz \
+    && fn=$(awk '/^Package: aosp-libs$/{f=1} f && /^Filename:/{print $2; exit}' /tmp/Packages) \
+    && curl -fL -o /tmp/aosp-libs.deb "https://packages.termux.dev/apt/termux-main/$fn" \
+    && mkdir /tmp/aosp && dpkg-deb -x /tmp/aosp-libs.deb /tmp/aosp \
+    && aosp=/tmp/aosp/data/data/com.termux/files/usr/opt/aosp \
+    && mkdir -p /opt/bionic-root/system \
+    && cp -r "$aosp/lib64" /opt/bionic-root/system/lib64 \
+    && cp -r "$aosp/bin" /opt/bionic-root/system/bin \
+    && rm -rf /tmp/aosp /tmp/aosp-libs.deb /tmp/Packages
+
+# Host SBCL for the cross-compilation phases (release binary runs on
+# Debian 12's glibc directly).
+RUN curl -fL -o /tmp/sbcl.tar.bz2 \
+        https://downloads.sourceforge.net/project/sbcl/sbcl/2.5.0/sbcl-2.5.0-x86-64-linux-binary.tar.bz2 \
+    && mkdir /tmp/sbcl && tar xjf /tmp/sbcl.tar.bz2 -C /tmp/sbcl --strip-components=1 \
+    && cd /tmp/sbcl && sh install.sh \
+    && rm -rf /tmp/sbcl /tmp/sbcl.tar.bz2
+
+COPY . /opt/wrun
+# Pre-generate the NDK farm (at run time /opt/wrun is root-owned, so
+# the keep-id build uid could not create it).
+RUN WRUN_TRIPLET=aarch64-linux-android \
+    WRUN_NDK=/opt/android-ndk-r29 WRUN_ANDROID_API=26 \
+    sh /opt/wrun/gen-toolchain.sh
+
+ENV WRUN_NDK=/opt/android-ndk-r29 \
+    WRUN_ANDROID_API=26 \
+    WRUN_BIONIC=/opt/bionic-root \
+    WRUN_QEMU=/usr/local/bin/qemu-aarch64
+ENTRYPOINT ["/opt/wrun/abuild.sh"]

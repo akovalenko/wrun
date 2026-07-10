@@ -1,0 +1,66 @@
+#!/bin/sh
+# abuild.sh — build SBCL for Android on a Linux host: no device, no
+# adb, and no patches — a pure upstream "linux flavor against bionic"
+# cross build.
+#
+# Upstream's own android path (--with-android) is not used at all: it
+# hard-wires adb as the target executor (probes, arch detection,
+# make-android.sh pushing the tree to a device).  Left unset, the
+# whole adb machinery stays dormant, and the build becomes an
+# ordinary qemu-profile cross build whose compiler is the NDK clang
+# and whose runner executes target binaries under qemu-user against a
+# donor Android runtime (see android-run).  The target OS really is
+# Linux, so there is no SBCL_OS override and make-config's probes
+# measure the actual bionic — os-provides-* features come out honest
+# for the chosen API level.
+#
+# Usage: abuild.sh /path/to/sbcl-tree [extra make.sh args...]
+#
+# Requires: an Android NDK, a RECENT qemu-user (>= 10.x, see README),
+# a host SBCL >= 2.5, an SBCL tree with SBCL_RUNNER support, and a
+# donor Android runtime tree (system/bin/linker64 + system/lib64/*,
+# e.g. termux's aosp-libs package unpacked).
+#
+# Knobs (environment); the defaults build arm64 against API 26:
+#   WRUN_NDK          Android NDK root           (required on first run)
+#   WRUN_ANDROID_API  targeted API level          [26]
+#   WRUN_ARCH         make.sh --arch value        [arm64]
+#   WRUN_TRIPLET      NDK target triplet          [aarch64-linux-android]
+#   WRUN_QEMU         qemu-user binary            [qemu-aarch64]
+#   WRUN_BIONIC       donor Android runtime root  (required)
+set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
+tree="$1"; shift
+
+# Same degenerate-HOME rake as qbuild.sh (keep-id containers).
+case "${HOME:-}" in
+    ""|/) HOME=/tmp/wrun-home; mkdir -p "$HOME"; export HOME ;;
+esac
+
+: "${WRUN_ARCH:=arm64}"
+: "${WRUN_TRIPLET:=aarch64-linux-android}"
+: "${WRUN_ANDROID_API:=26}"
+: "${WRUN_QEMU:=qemu-aarch64}"
+: "${WRUN_BIONIC:?donor Android runtime root (system/bin/linker64 + system/lib64)}"
+export WRUN_QEMU WRUN_BIONIC
+
+# NDK clang farm under bare names, generated on first use.  The API
+# level is baked into the wrappers; rerun gen-toolchain.sh to change
+# it for a triplet.
+[ -x "$HERE/toolchain/$WRUN_TRIPLET/gcc" ] || \
+    WRUN_TRIPLET="$WRUN_TRIPLET" WRUN_NDK="${WRUN_NDK:-}" \
+    WRUN_ANDROID_API="$WRUN_ANDROID_API" \
+    sh "$HERE/gen-toolchain.sh"
+PATH="$HERE/toolchain/$WRUN_TRIPLET:$PATH"
+export PATH
+
+export SBCL_RUNNER="$HERE/android-run"
+
+# --without-gcc-tls: NDK clang below API 29 compiles __thread into
+# EMULATED TLS (__emutls_v.* + __emutls_get_address), which cannot
+# satisfy the runtime's direct references to the current_thread TLS
+# symbol — the link dies with "undefined symbol: current_thread".
+# Upstream's own android recipe (make-android.sh) disables the
+# feature the same way; so does termux.
+cd "$tree"
+exec sh make.sh --arch="$WRUN_ARCH" --without-gcc-tls "$@"

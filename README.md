@@ -150,6 +150,48 @@ ninja -C build qemu-aarch64      # point WRUN_QEMU at the result
 `tomli` module for meson: `pip install tomli` or its sources on
 `PYTHONPATH`.)
 
+## Android targets: the abuild profile — no device, no adb
+
+Upstream's own Android path hard-wires adb as the target executor
+(probes, arch detection, `make-android.sh` pushing the whole tree to
+a device).  `abuild.sh` doesn't use any of it: with `--with-android`
+never passed, the adb machinery stays dormant, and the build is an
+ordinary qemu-profile cross build — "linux flavor against bionic" —
+whose compiler is the NDK clang and whose runner (`android-run`)
+executes target binaries under qemu-user against a **donor Android
+runtime**: a directory with `system/bin/linker64` and
+`system/lib64/*.so`, e.g. termux's `aosp-libs` package unpacked, or
+an emulator system image.  The target OS really is Linux, so no
+`SBCL_OS` override; make-config's probes run under qemu against the
+actual bionic, and the `os-provides-*` features come out honest for
+the chosen API level.
+
+```sh
+WRUN_NDK=~/android-ndk-r29 WRUN_BIONIC=~/bionic-root \
+    ./abuild.sh ~/src/sbcl    # arm64 against API 26 by default
+```
+
+Knobs (environment): `WRUN_NDK`, `WRUN_ANDROID_API`, `WRUN_ARCH`,
+`WRUN_TRIPLET`, `WRUN_QEMU`, `WRUN_BIONIC` — see the header of
+`abuild.sh`.  The toolchain farm covers the differences between the
+GNU-style cross toolchain and the NDK: bare names map onto the
+per-API clang driver and llvm binutils, empty `libpthread.a`/
+`librt.a` stubs satisfy `Config.*-linux` (bionic keeps both in
+libc), and the driver wrappers plug the one C-level glibc-ism the
+"linux" sources use that bionic never had (`getdtablesize`).
+`abuild.sh` always passes `--without-gcc-tls`: NDK clang below API
+29 compiles `__thread` into *emulated* TLS (`__emutls_v.*`), which
+cannot satisfy the runtime's direct references to the
+`current_thread` TLS symbol — upstream's own `make-android.sh`
+disables the feature the same way.
+`Containerfile.android` packages the whole profile (NDK + static
+qemu + aosp-libs donor + host SBCL) into a self-contained image.
+
+Note the donor's API ceiling: binaries built for `WRUN_ANDROID_API`
+N need a bionic >= N to run, and the aosp-libs donor is Android 9
+(API 28).  The default API 26 keeps `getpwent` & co. available to
+sb-posix while staying comfortably under that ceiling.
+
 ## Status / provenance
 
 Grown out of Anton Kovalenko's long-lived local setup (mingw + wine +
