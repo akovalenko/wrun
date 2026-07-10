@@ -76,11 +76,16 @@ else
     export SBCL_RUNNER="$HERE/android-run"
 fi
 
-# --without-gcc-tls: NDK clang below API 29 compiles __thread into
-# EMULATED TLS (__emutls_v.* + __emutls_get_address), which cannot
-# satisfy the runtime's direct references to the current_thread TLS
-# symbol — the link dies with "undefined symbol: current_thread".
-# Upstream's own android recipe (make-android.sh) disables the
-# feature the same way; so does termux.
+# --without-gcc-tls below API 29 only: NDK clang there compiles
+# __thread into EMULATED TLS (__emutls_v.* + __emutls_get_address),
+# which cannot satisfy the runtime's direct references to the
+# current_thread TLS symbol — the link dies with "undefined symbol:
+# current_thread".  Upstream's own android recipe (make-android.sh)
+# disables the feature the same way; so does termux.  From API 29 on
+# bionic's linker supports ELF TLS, clang emits real TLS, and
+# :gcc-tls stays in (an explicit make.sh flag in "$@" still wins —
+# abuild's own flag comes first).
+tls=
+[ "$WRUN_ANDROID_API" -lt 29 ] && tls=--without-gcc-tls
 cd "$tree"
-exec sh make.sh --arch="$WRUN_ARCH" --without-gcc-tls "$@"
+exec sh make.sh --arch="$WRUN_ARCH" $tls "$@"
