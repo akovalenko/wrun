@@ -33,12 +33,16 @@ esac
 : "${WRUN_ARCH:=arm64}"
 : "${WRUN_TRIPLET:=aarch64-linux-gnu}"
 : "${WRUN_QEMU:=qemu-aarch64}"
-: "${WRUN_QEMU_PREFIX:=/usr/$WRUN_TRIPLET}"
+# With WRUN_SYSROOT (portable-dist: old-glibc donor sysroot baked into
+# the compiler wrappers) the guest must run against the same tree, so
+# it doubles as the qemu -L prefix by default.
+: "${WRUN_QEMU_PREFIX:=${WRUN_SYSROOT:-/usr/$WRUN_TRIPLET}}"
 export WRUN_QEMU WRUN_QEMU_PREFIX
 
 # Cross toolchain under bare names, generated on first use.
 [ -x "$HERE/toolchain/$WRUN_TRIPLET/gcc" ] || \
-    WRUN_TRIPLET="$WRUN_TRIPLET" sh "$HERE/gen-toolchain.sh"
+    WRUN_TRIPLET="$WRUN_TRIPLET" WRUN_SYSROOT="${WRUN_SYSROOT:-}" \
+    sh "$HERE/gen-toolchain.sh"
 PATH="$HERE/toolchain/$WRUN_TRIPLET:$PATH"
 export PATH
 

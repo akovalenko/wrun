@@ -35,8 +35,26 @@ mkdir -p "$FARM"
 # symlink loses its cc1 under the forwarder environment (argv[0]-based
 # subprogram discovery); `exec <absolute path>` keeps the driver
 # self-locating regardless of caller and environment.
+#
+# With WRUN_SYSROOT set, compiler-driver wrappers get --sysroot baked
+# in (portable-dist builds: a sysroot-less cross gcc plus an old-glibc
+# donor sysroot).  Binutils resolve paths via the driver, so only the
+# drivers need it.  NOTE: the farm path is per-triplet only — rerun
+# this script when changing WRUN_SYSROOT for a triplet.
+is_driver() {
+    case "$1" in
+        gcc|g++|c++|cpp|cc) return 0 ;;
+        gcc-[0-9]*|g++-[0-9]*|c++-[0-9]*|cpp-[0-9]*) return 0 ;;
+    esac
+    return 1
+}
 wrap() {
-    printf '#!/bin/sh\nexec %s "$@"\n' "$1" > "$FARM/$2"
+    if [ -n "${WRUN_SYSROOT:-}" ] && is_driver "$2"; then
+        printf '#!/bin/sh\nexec %s --sysroot=%s "$@"\n' \
+            "$1" "$WRUN_SYSROOT" > "$FARM/$2"
+    else
+        printf '#!/bin/sh\nexec %s "$@"\n' "$1" > "$FARM/$2"
+    fi
     chmod +x "$FARM/$2"
 }
 for tool in "$tooldir/$TRIPLET"-*; do

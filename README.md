@@ -97,6 +97,25 @@ win32 APIs (`WaitOnAddress` & co.) and builds them "by accident" via
 implicit declarations; current gcc treats those as hard errors, so
 the fresh image doubles as a correctness check.
 
+## Portable Linux dists: the manylinux profile
+
+`Containerfile.portable` builds a second image, based on
+`quay.io/pypa/manylinux_2_28` (AlmaLinux 8, glibc 2.28): fresh
+compilers against an OLD glibc, so the produced Linux SBCL binaries
+run on any 2018+ distribution.  x86-64 builds use the image's
+gcc-toolset-14 directly (a native build — no runner involved); arm64
+goes through the qemu profile with EPEL's sysroot-less cross gcc
+plus an old-glibc sysroot donated by the aarch64 flavor of the same
+image.  The donor sysroot is baked into the farm wrappers via
+`WRUN_SYSROOT` and doubles as the default qemu `-L` prefix, keeping
+link-time and run-time views of the guest world identical.  Usage
+examples are in the header of `Containerfile.portable`.
+
+`WRUN_SYSROOT` works outside containers too: point it at any donor
+sysroot and `gen-toolchain.sh` bakes `--sysroot` into the compiler
+*driver* wrappers (binutils resolve paths through the driver; rerun
+the script to change a triplet's sysroot).
+
 ## The same runner hook without Wine: qemu-user targets
 
 `SBCL_RUNNER` is emulator-agnostic.  `qbuild.sh` drives a full
