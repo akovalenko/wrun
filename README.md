@@ -226,9 +226,12 @@ Details worth knowing:
   channel — a few seconds; the first push pays for the whole tree;
 - `abuild.sh` takes a `termux-wake-lock` on the device for the
   build's duration (best effort, harmless elsewhere);
-- fasl mtimes pulled back carry the device clock; a badly skewed
-  device makes host-side `make` redo (never miss) work — keep the
-  device NTP-synced;
+- the pull is `-u` (receiver-newer wins): the build scripts redirect
+  the runner's stdout into the tree (`determine-endianness >> $ltf`),
+  and a plain pull would revert such files to the pre-run device
+  copy.  `-u` rides on mtimes across two clocks, so the runner
+  hard-fails on host/device skew above 30 s — keep the device
+  NTP-synced (fasl mtimes carry the device clock anyway);
 - `WRUN_SSH_OPTS` values with embedded spaces in paths are not
   supported (the runner word-splits them).
 

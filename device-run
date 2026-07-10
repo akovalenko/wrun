@@ -6,9 +6,16 @@
 # (incremental, --delete: the device copy is an exact mirror), the
 # binary runs there in the same tree-relative cwd over a multiplexed
 # ssh connection (stdin/stdout/stderr and the exit code pass through),
-# and whatever the run wrote comes back with a second rsync.  Between
-# an invocation's push and pull only the device writes, so the plain
-# newer-file pull cannot clobber host-side work.
+# and whatever the run wrote comes back with a second rsync.
+#
+# The pull uses -u (receiver-newer wins): the host DOES write into the
+# tree during the run — the build scripts redirect the runner's own
+# stdout there ("determine-endianness >> $ltf", "grovel-headers >
+# output/...") — and a plain -a pull would revert those files to the
+# stale device copy taken by the push.  -u leans on mtime comparison
+# across two clocks, so a skew guard hard-fails the run when host and
+# device disagree by more than 30 s: with a skewed device -u could
+# silently skip legitimate build products instead.
 #
 # Everything rides one ControlMaster socket, so per-invocation ssh
 # overhead is a channel open, not a handshake.
@@ -46,10 +53,18 @@ case "$PWD" in
     *) echo "device-run: cwd $PWD is outside WRUN_TREE=$WRUN_TREE" >&2; exit 70 ;;
 esac
 
-# One roundtrip: ensure the remote dir exists and learn the remote HOME
-# (needed to translate absolute host paths in the argv).  -n: this call
-# must not eat the stdin destined for the actual run.
-rhome=$($SSH -n "$WRUN_DEVICE" "mkdir -p '$rbase' && printf %s \"\$HOME\"")
+# One roundtrip: ensure the remote dir exists, learn the remote HOME
+# (needed to translate absolute host paths in the argv) and the remote
+# clock (see the -u rationale above).  -n: this call must not eat the
+# stdin destined for the actual run.
+remote=$($SSH -n "$WRUN_DEVICE" "mkdir -p '$rbase' && printf '%s %s' \"\$HOME\" \"\$(date +%s)\"")
+rhome=${remote% *}
+skew=$(( $(date +%s) - ${remote##* } ))
+[ "$skew" -lt 0 ] && skew=$((-skew))
+if [ "$skew" -gt 30 ]; then
+    echo "device-run: host/device clock skew ${skew}s; sync the device clock" >&2
+    exit 70
+fi
 rtree="$rhome/$rbase"
 
 # Host-side build products the target never reads; keeping them out of
@@ -82,6 +97,7 @@ rc=0
 $SSH "$WRUN_DEVICE" "$cmd" || rc=$?
 
 # Pull even after a failed run: partial outputs aid the post-mortem.
-rsync -a $excl -e "$SSH" "$WRUN_DEVICE:$rbase"/ "$WRUN_TREE"/ || rc=$?
+# -u: never revert files the host wrote during the run (see header).
+rsync -au $excl -e "$SSH" "$WRUN_DEVICE:$rbase"/ "$WRUN_TREE"/ || rc=$?
 
 exit $rc
