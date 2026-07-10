@@ -192,6 +192,46 @@ N need a bionic >= N to run, and the aosp-libs donor is Android 9
 (API 28).  The default API 26 keeps `getpwent` & co. available to
 sb-posix while staying comfortably under that ceiling.
 
+### The device profile: offload target phases to a real device
+
+Set `WRUN_DEVICE` to an ssh destination (an `ssh_config` alias is the
+comfortable form) and `abuild.sh` swaps the runner: instead of
+qemu-user, every target-binary invocation runs **on the device**
+(`device-run`) — the tree is mirrored there with rsync before the
+run (incremental, one exact mirror per tree), the binary executes in
+the same tree-relative cwd over a multiplexed ssh connection
+(stdin/stdout/stderr and the exit code pass through), and the
+products come back with a second rsync.  qemu and the donor runtime
+are not needed at all; the NDK farm still cross-compiles the C
+runtime on the host.  The build stays host-orchestrated — the device
+is an optional accelerator, not a dependency (unplug it and the qemu
+profile is one unset variable away).
+
+```sh
+WRUN_NDK=~/android-ndk-r29 WRUN_DEVICE=phone \
+WRUN_SSH_OPTS='-F ~/.ssh/config.devices' \
+    ./abuild.sh ~/src/sbcl
+```
+
+Knobs: `WRUN_DEVICE`, `WRUN_SSH_OPTS`, `WRUN_DEVICE_DIR`,
+`WRUN_DEVICE_CC`, `WRUN_SSH_CTL` — see the header of `device-run`.
+Details worth knowing:
+
+- the remote process runs with `SBCL_RUNNER` unset (target binaries
+  are native there, so the in-lisp grovel helpers exec their
+  `a.out` directly) and with `CC` overridden by `WRUN_DEVICE_CC`
+  (default `clang`, present on termux): sb-grovel then compiles and
+  runs its probe program against the device's **real** libc;
+- per-invocation overhead is two rsync scans plus a mux'd ssh
+  channel — a few seconds; the first push pays for the whole tree;
+- `abuild.sh` takes a `termux-wake-lock` on the device for the
+  build's duration (best effort, harmless elsewhere);
+- fasl mtimes pulled back carry the device clock; a badly skewed
+  device makes host-side `make` redo (never miss) work — keep the
+  device NTP-synced;
+- `WRUN_SSH_OPTS` values with embedded spaces in paths are not
+  supported (the runner word-splits them).
+
 ## Status / provenance
 
 Grown out of Anton Kovalenko's long-lived local setup (mingw + wine +

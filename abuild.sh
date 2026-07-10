@@ -27,7 +27,13 @@
 #   WRUN_ARCH         make.sh --arch value        [arm64]
 #   WRUN_TRIPLET      NDK target triplet          [aarch64-linux-android]
 #   WRUN_QEMU         qemu-user binary            [qemu-aarch64]
-#   WRUN_BIONIC       donor Android runtime root  (required)
+#   WRUN_BIONIC       donor Android runtime root  (required without WRUN_DEVICE)
+#
+# Device profile: set WRUN_DEVICE to an ssh destination and the target
+# phases run on a real Android device instead of qemu (see device-run
+# for the mechanism and the WRUN_DEVICE_* / WRUN_SSH_* knobs); qemu and
+# the donor runtime are then not needed at all.  The NDK farm still
+# cross-compiles the C runtime on the host in both profiles.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 tree="$1"; shift
@@ -40,9 +46,19 @@ esac
 : "${WRUN_ARCH:=arm64}"
 : "${WRUN_TRIPLET:=aarch64-linux-android}"
 : "${WRUN_ANDROID_API:=26}"
-: "${WRUN_QEMU:=qemu-aarch64}"
-: "${WRUN_BIONIC:?donor Android runtime root (system/bin/linker64 + system/lib64)}"
-export WRUN_QEMU WRUN_BIONIC
+if [ -n "${WRUN_DEVICE:-}" ]; then
+    # Real-device profile: target binaries run on the device over ssh
+    # (sync-then-run, see device-run); qemu and the donor runtime stay
+    # out of the picture.
+    WRUN_TREE=$(cd "$tree" && pwd); export WRUN_TREE
+    # Keep the device awake for the duration of the build (best
+    # effort; termux-specific, harmless elsewhere).
+    ssh ${WRUN_SSH_OPTS:-} -n "$WRUN_DEVICE" termux-wake-lock 2>/dev/null || true
+else
+    : "${WRUN_QEMU:=qemu-aarch64}"
+    : "${WRUN_BIONIC:?donor Android runtime root (system/bin/linker64 + system/lib64)}"
+    export WRUN_QEMU WRUN_BIONIC
+fi
 
 # NDK clang farm under bare names, generated on first use.  The API
 # level is baked into the wrappers; rerun gen-toolchain.sh to change
@@ -54,7 +70,11 @@ export WRUN_QEMU WRUN_BIONIC
 PATH="$HERE/toolchain/$WRUN_TRIPLET:$PATH"
 export PATH
 
-export SBCL_RUNNER="$HERE/android-run"
+if [ -n "${WRUN_DEVICE:-}" ]; then
+    export SBCL_RUNNER="$HERE/device-run"
+else
+    export SBCL_RUNNER="$HERE/android-run"
+fi
 
 # --without-gcc-tls: NDK clang below API 29 compiles __thread into
 # EMULATED TLS (__emutls_v.* + __emutls_get_address), which cannot

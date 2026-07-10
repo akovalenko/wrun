@@ -1,0 +1,87 @@
+#!/bin/sh
+# device-run — SBCL_RUNNER that executes target binaries on a real
+# device over ssh: sync-then-run-then-sync.
+#
+# The tree is mirrored to the device with rsync before every invocation
+# (incremental, --delete: the device copy is an exact mirror), the
+# binary runs there in the same tree-relative cwd over a multiplexed
+# ssh connection (stdin/stdout/stderr and the exit code pass through),
+# and whatever the run wrote comes back with a second rsync.  Between
+# an invocation's push and pull only the device writes, so the plain
+# newer-file pull cannot clobber host-side work.
+#
+# Everything rides one ControlMaster socket, so per-invocation ssh
+# overhead is a channel open, not a handshake.
+#
+# Knobs (environment):
+#   WRUN_DEVICE      ssh destination (host or alias)           required
+#   WRUN_TREE        host tree root, absolute (abuild.sh
+#                    exports it; required for the relative-cwd
+#                    mapping and path translation)              required
+#   WRUN_SSH_OPTS    extra ssh args, e.g. "-F sshconfig"        []
+#   WRUN_DEVICE_DIR  remote tree dir, relative to remote HOME   [wrun/<basename>]
+#   WRUN_DEVICE_CC   C compiler to use ON the device            [clang]
+#   WRUN_SSH_CTL     ssh ControlPath pattern                    [/tmp/wrun-ssh-<uid>-%C]
+#
+# The remote process runs with SBCL_RUNNER unset: on the device the
+# target binaries are native, so the in-lisp grovel helpers
+# (make-contrib.lisp, sb-grovel def-to-lisp) exec their a.out
+# directly.  CC is overridden with a compiler that exists on the
+# device — the host cross-farm paths mean nothing there; grovel
+# constants then reflect the device's real libc, which is the point.
+# Host CFLAGS are deliberately not forwarded for the same reason.
+set -eu
+
+: "${WRUN_DEVICE:?ssh destination (e.g. an ssh_config alias)}"
+: "${WRUN_TREE:?host tree root (abuild.sh exports it)}"
+rbase="${WRUN_DEVICE_DIR:-wrun/$(basename "$WRUN_TREE")}"
+ctl="${WRUN_SSH_CTL:-/tmp/wrun-ssh-$(id -u)-%C}"
+
+SSH="ssh ${WRUN_SSH_OPTS:-} -o ControlMaster=auto -o ControlPath=$ctl -o ControlPersist=600"
+
+# Map the invocation cwd onto the mirrored tree.
+case "$PWD" in
+    "$WRUN_TREE") rel=. ;;
+    "$WRUN_TREE"/*) rel=${PWD#"$WRUN_TREE"/} ;;
+    *) echo "device-run: cwd $PWD is outside WRUN_TREE=$WRUN_TREE" >&2; exit 70 ;;
+esac
+
+# One roundtrip: ensure the remote dir exists and learn the remote HOME
+# (needed to translate absolute host paths in the argv).  -n: this call
+# must not eat the stdin destined for the actual run.
+rhome=$($SSH -n "$WRUN_DEVICE" "mkdir -p '$rbase' && printf %s \"\$HOME\"")
+rtree="$rhome/$rbase"
+
+# Host-side build products the target never reads; keeping them out of
+# the mirror saves the big mid-build pushes (obj/from-host alone is
+# hundreds of megabytes of host fasls).
+excl="--exclude=.git --exclude=/obj/from-host --exclude=/obj/from-xc"
+
+rsync -a --delete $excl -e "$SSH" "$WRUN_TREE"/ "$WRUN_DEVICE:$rbase"/
+
+quote() { printf %s "$1" | sed "s/'/'\\\\''/g"; }
+
+# Absolute host paths under the tree root (SBCL_TOP-style) are
+# translated to the device mirror; everything else passes verbatim.
+xlate() {
+    case "$1" in
+        "$WRUN_TREE") printf %s "$rtree" ;;
+        "$WRUN_TREE"/*) printf %s "$rtree/${1#"$WRUN_TREE"/}" ;;
+        *) printf %s "$1" ;;
+    esac
+}
+
+cmd="cd '$(quote "$rtree/$rel")' && CC='$(quote "${WRUN_DEVICE_CC:-clang}")'"
+[ -n "${SBCL_HOME:-}" ] && cmd="$cmd SBCL_HOME='$(quote "$(xlate "$SBCL_HOME")")'"
+cmd="$cmd exec"
+for a in "$@"; do
+    cmd="$cmd '$(quote "$(xlate "$a")")'"
+done
+
+rc=0
+$SSH "$WRUN_DEVICE" "$cmd" || rc=$?
+
+# Pull even after a failed run: partial outputs aid the post-mortem.
+rsync -a $excl -e "$SSH" "$WRUN_DEVICE:$rbase"/ "$WRUN_TREE"/ || rc=$?
+
+exit $rc
