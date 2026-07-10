@@ -1,0 +1,9 @@
+#!/bin/sh
+# qemu-run — SBCL_RUNNER for qemu-user-hosted target phases.
+#
+# Usage: SBCL_RUNNER=/path/to/qemu-run  (see qbuild.sh)
+# Runs a freshly-built foreign-architecture Linux binary under
+# qemu-user.  WRUN_QEMU picks the emulator, WRUN_QEMU_PREFIX the
+# guest ELF prefix (dynamic loader + libraries; qemu's -L).  No
+# suffix resolution needed here: Linux targets are plain a.out names.
+exec "${WRUN_QEMU:-qemu-aarch64}" -L "${WRUN_QEMU_PREFIX:-/usr/aarch64-linux-gnu}" "$@"

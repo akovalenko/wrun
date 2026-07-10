@@ -32,24 +32,30 @@ Three small mechanisms, one per process-boundary:
    with every winegcc).  Unredirected streams keep plain Unix fd
    inheritance.  The default manifest (`shims.list`) contains just
    the compiler names sb-grovel may ask for and `cat`.
-3. **`toolchain/`**: bare-named symlinks (`gcc`, `ld`, `windres`,
-   `ar`, ...) to the mingw-w64 cross tools, prepended to `PATH` for
-   the duration of the build.  One directory uniformly covers every
-   tool the runtime Makefiles call, with zero changes to the SBCL
-   tree (deliberately kept this way to keep the upstream patch
-   small).  The target OS is `SBCL_OS=win32` — no fake `uname`.
+3. **`toolchain/<triplet>/`**: bare-named wrapper scripts (`gcc`,
+   `ld`, `windres`, `ar`, ...) over the cross tools, prepended to
+   `PATH` for the duration of the build.  One directory per target
+   triplet uniformly covers every tool the runtime Makefiles call,
+   with zero changes to the SBCL tree (deliberately kept this way to
+   keep the upstream patch small).  Versioned-only cross tools
+   (Ubuntu's `aarch64-linux-gnu-gcc-12`) get their plain names
+   automatically.  The target OS is `SBCL_OS=win32` — no fake
+   `uname`.
 
 `wbuild.sh` wires all of this together.
 
 ## Prerequisites
 
-- mingw-w64 cross gcc (`x86_64-w64-mingw32-gcc`) — prefer a recent
-  one: old mingw-w64 headers lack declarations for newer win32 APIs
-  (`WaitOnAddress` & co.), and the build then "works by accident"
-  through implicit declarations;
-- wine (tested with 6.0.3; anything newer should do) and winegcc
-  (wine devel package) to build the forwarder;
-- a host SBCL for the cross-compilation phases;
+- Windows target: mingw-w64 cross gcc (`x86_64-w64-mingw32-gcc`) —
+  prefer a recent one: old mingw-w64 headers lack declarations for
+  newer win32 APIs (`WaitOnAddress` & co.), and the build then
+  "works by accident" through implicit declarations;
+- Windows target: wine (tested with 6.0.3; anything newer should do)
+  and winegcc (wine devel package) to build the forwarder;
+- foreign-arch Linux target: cross gcc for the triplet and a recent
+  qemu-user (>= 10.x; see below);
+- a host SBCL for the cross-compilation phases (>= 2.5 for current
+  master);
 - an SBCL tree with `SBCL_OS`/`SBCL_RUNNER` support (patch series in
   preparation for upstream; until merged, apply it from here).
 
@@ -74,6 +80,15 @@ podman build -t wrun .
 podman run --rm -v ~/src/sbcl:/src --userns=keep-id wrun /src
 ```
 
+The default entrypoint builds the Windows target.  The same image
+covers the qemu profile (Arch's qemu-user is current, both toolchain
+farms are pre-generated) — override the entrypoint:
+
+```sh
+podman run --rm -v ~/src/sbcl:/src --userns=keep-id \
+    --entrypoint /opt/wrun/qbuild.sh wrun /src
+```
+
 Rootless podman suffices: no `--privileged`, no binfmt_misc — target
 binaries always run through `SBCL_RUNNER`, never via the host kernel.
 `--userns=keep-id` keeps files created in the mounted tree owned by
@@ -82,18 +97,39 @@ win32 APIs (`WaitOnAddress` & co.) and builds them "by accident" via
 implicit declarations; current gcc treats those as hard errors, so
 the fresh image doubles as a correctness check.
 
-## The same runner hook without Wine
+## The same runner hook without Wine: qemu-user targets
 
-`SBCL_RUNNER` is emulator-agnostic.  For a full foreign-architecture
-Linux build without hardware:
+`SBCL_RUNNER` is emulator-agnostic.  `qbuild.sh` drives a full
+foreign-architecture Linux build with qemu-user as the target "CPU"
+(no daemon, no privileges, no binfmt).  None of the wine shelf
+applies — guest-to-host exec is native under qemu-user, so the
+forwarder/shims are not involved and `make` is not a prerequisite;
+the toolchain farm is generated on first use:
 
 ```sh
-SBCL_RUNNER="qemu-aarch64 -L /usr/aarch64-linux-gnu" \
-CC=aarch64-linux-gnu-gcc SBCL_OS=linux \
-sh make.sh --arch=arm64
+./qbuild.sh ~/src/sbcl     # arm64 by default; make.sh args accepted
 ```
 
-(qemu-user needs no daemon, no privileges, no binfmt.)
+Knobs (environment): `WRUN_ARCH`, `WRUN_TRIPLET`, `WRUN_QEMU`,
+`WRUN_QEMU_PREFIX` — see the header of `qbuild.sh`.
+
+The qemu-user *version* matters: 6.2 futex-livelocks threaded SBCL
+outright, 7.2 fork-corrupts x86-64 guests (`run-program` stream
+users); qemu >= 10.x is known good.  Arch ships a current one; on
+older distributions build qemu-user statically from a release tag —
+it takes minutes and has no runtime dependencies:
+
+```sh
+git clone --depth 1 -b v10.2.4 https://gitlab.com/qemu-project/qemu
+cd qemu
+./configure --target-list=aarch64-linux-user \
+            --disable-docs --disable-tools --static
+ninja -C build qemu-aarch64      # point WRUN_QEMU at the result
+```
+
+(Old host pythons, e.g. Ubuntu 22.04's 3.10, additionally need the
+`tomli` module for meson: `pip install tomli` or its sources on
+`PYTHONPATH`.)
 
 ## Status / provenance
 

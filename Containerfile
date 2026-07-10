@@ -21,8 +21,11 @@ RUN pacman -Syu --noconfirm --needed \
     && pacman -Scc --noconfirm
 
 COPY . /opt/wrun
-# builds the forwarder (winegcc) and generates shims/ + toolchain/
-RUN make -C /opt/wrun
+# Forwarder (winegcc), shims/ and BOTH toolchain farms, pre-generated
+# at image build time: at run time /opt/wrun is root-owned, so the
+# keep-id build uid could not create a farm on first use.
+RUN make -C /opt/wrun \
+    && WRUN_TRIPLET=aarch64-linux-gnu sh /opt/wrun/gen-toolchain.sh
 
 ENV WINEDEBUG=-all
 ENTRYPOINT ["/opt/wrun/wbuild.sh"]
