@@ -32,7 +32,8 @@ fi
 
 # Cross toolchain under bare names (gcc, ld, windres, ...) — shadows
 # the host toolchain for the duration of the build.
-PATH="$HERE/toolchain:$PATH"
+TRIPLET="${WRUN_TRIPLET:-x86_64-w64-mingw32}"
+PATH="$HERE/toolchain/$TRIPLET:$PATH"
 export PATH
 
 export SBCL_OS=win32
