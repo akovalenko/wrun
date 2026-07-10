@@ -21,11 +21,17 @@ Three small mechanisms, one per process-boundary:
    directory listed in `WINEPATH`) all point at the forwarder, which
    strips the directory and `.exe` from `argv[0]`, converts
    `Z:\...`-style absolute path arguments to Unix form (resolving
-   `$WINEPREFIX/dosdevices/<drive>:` — pure POSIX, so the forwarder
-   builds with bare winegcc, no wine headers needed), and
-   `posix_spawnp`s the real tool.  The default manifest
-   (`shims.list`) contains just the compiler names sb-grovel may ask
-   for and `cat`.
+   `$WINEPREFIX/dosdevices/<drive>:` — no wine headers needed, so the
+   forwarder builds with bare winegcc), `posix_spawnp`s the real tool,
+   and bridges its stdio: when the Wine parent redirects std handles
+   to Windows pipes (`run-program` with lisp streams), those pipes
+   live in wineserver and have no Unix fd here — Wine points fds 0/1
+   at `/dev/null` — so the child runs on the forwarder's own pipes
+   and per-stream pump threads copy bytes to/from the Windows std
+   handles (a hand-declared sliver of kernel32; import stubs ship
+   with every winegcc).  Unredirected streams keep plain Unix fd
+   inheritance.  The default manifest (`shims.list`) contains just
+   the compiler names sb-grovel may ask for and `cat`.
 3. **`toolchain/`**: bare-named symlinks (`gcc`, `ld`, `windres`,
    `ar`, ...) to the mingw-w64 cross tools, prepended to `PATH` for
    the duration of the build.  One directory uniformly covers every
