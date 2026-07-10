@@ -50,6 +50,9 @@ RUN curl -fL -o /tmp/Packages.gz \
     && mkdir -p /opt/bionic-root/system \
     && cp -r "$aosp/lib64" /opt/bionic-root/system/lib64 \
     && cp -r "$aosp/bin" /opt/bionic-root/system/bin \
+    # the deb ships 0700 directories (termux private data path) and
+    # cp -r preserves them — unreadable for the keep-id build uid
+    && chmod -R a+rX /opt/bionic-root \
     && rm -rf /tmp/aosp /tmp/aosp-libs.deb /tmp/Packages
 
 # Host SBCL for the cross-compilation phases (release binary runs on
