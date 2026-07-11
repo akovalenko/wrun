@@ -12,7 +12,13 @@
  *   2. rewrites Windows-absolute-path arguments ("Z:\home\...") into
  *      Unix form by resolving $WINEPREFIX/dosdevices/<drive>:,
  *   3. posix_spawnp()s the real <tool> from the Unix PATH, bridging
- *      stdio and returning its exit status.
+ *      stdio and returning its exit status,
+ *   4. merges the Windows environment into the child's: additions
+ *      made in the Wine world (the target lisp's _putenv — e.g. the
+ *      SBCL test suite's SBCL_SOFTWARE_TYPE) live only in the Windows
+ *      block and are invisible to plain Unix env inheritance.  Unix
+ *      names win on collision; see env_deny for the few Windows
+ *      values a Unix child would genuinely misread.
  *
  * Stdio needs the bridging (not plain fd inheritance): when the Wine
  * parent redirects std handles to Windows pipes (SBCL's run-program
@@ -36,6 +42,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <limits.h>
 #include <sys/types.h>
@@ -48,6 +55,7 @@ typedef void *HANDLE;
 typedef unsigned int DWORD;
 typedef int WBOOL;
 WINAPI HANDLE GetStdHandle(DWORD);
+WINAPI char *GetEnvironmentStringsA(void);
 WINAPI WBOOL ReadFile(HANDLE, void *, DWORD, DWORD *, void *);
 WINAPI WBOOL WriteFile(HANDLE, const void *, DWORD, DWORD *, void *);
 WINAPI HANDLE CreateThread(void *, unsigned long, DWORD (WINAPI *)(void *),
@@ -184,7 +192,68 @@ static char *maybe_translate(char *arg)
     return out;
 }
 
-int main(int argc, char *argv[], char *envp[])
+/* The Windows values a Unix child would genuinely misread: TEMP/TMP
+ * hold C:\-style paths (python's tempfile & co. honor them), and
+ * OS=Windows_NT is a popular "am I on Windows" probe in makefiles.
+ * The rest of the wine housekeeping (SystemRoot, COMSPEC, PATHEXT,
+ * PROCESSOR_*, ...) is inert on the Unix side and passes through —
+ * deliberately no attempt to enumerate it. */
+static const char *const env_deny[] = { "TEMP", "TMP", "OS" };
+
+/* Windows env additions -> child env.  Unix wins on collision: wine
+ * synthesized the Windows block FROM the Unix environment, so a
+ * differing Unix value is the host-side truth (PATH being the obvious
+ * case).  The Unix side is glibc's environ — main()'s third argument
+ * is NOT reliably populated in a winelib process.  The returned array
+ * points into environ and the (never freed) Windows block — we spawn
+ * once and exit. */
+extern char **environ;
+
+static char **merge_win_env(void)
+{
+    static char *empty[] = { NULL };
+    char **unix_env = environ ? environ : empty;
+    char *wenv = GetEnvironmentStringsA();
+    char *w, **merged;
+    size_t nu = 0, nw = 0, k, i;
+
+    if (!wenv)
+        return unix_env;
+    while (unix_env[nu])
+        nu++;
+    for (w = wenv; *w; w += strlen(w) + 1)
+        nw++;
+    merged = malloc((nu + nw + 1) * sizeof *merged);
+    if (!merged)
+        return unix_env;
+    for (k = 0; k < nu; k++)
+        merged[k] = unix_env[k];
+    for (w = wenv; *w; w += strlen(w) + 1) {
+        char *eq;
+        size_t n;
+        if (*w == '=')  /* "=C:=..." per-drive cwd entries */
+            continue;
+        eq = strchr(w, '=');
+        if (!eq)
+            continue;
+        n = (size_t)(eq - w);
+        for (i = 0; i < sizeof env_deny / sizeof *env_deny; i++)
+            if (strlen(env_deny[i]) == n && !strncasecmp(w, env_deny[i], n))
+                break;
+        if (i < sizeof env_deny / sizeof *env_deny)
+            continue;
+        for (i = 0; i < nu; i++)
+            if (!strncmp(unix_env[i], w, n) && unix_env[i][n] == '=')
+                break;
+        if (i < nu)
+            continue;
+        merged[k++] = w;
+    }
+    merged[k] = NULL;
+    return merged;
+}
+
+int main(int argc, char *argv[])
 {
     char *me = argv[0];
     size_t len = strlen(me);
@@ -220,7 +289,7 @@ int main(int argc, char *argv[], char *envp[])
     child_ends[1] = wire_stream(&fa, &pumps[1], STD_OUTPUT_HANDLE, 1);
     child_ends[2] = wire_stream(&fa, &pumps[2], STD_ERROR_HANDLE, 2);
 
-    rc = posix_spawnp(&child, argv[0], &fa, NULL, argv, envp);
+    rc = posix_spawnp(&child, argv[0], &fa, NULL, argv, merge_win_env());
     if (rc) {
         errno = rc;
         perror("forwarder: posix_spawnp");

@@ -63,7 +63,15 @@ case "${1:-}" in
         shift
         WRUN_RUNTIME="$PWD/src/runtime/sbcl.exe"
         TEST_SBCL_RUNTIME="$HERE/target-sbcl"
-        export WRUN_RUNTIME TEST_SBCL_RUNTIME
+        # sh tests take their shell from $SHELL (tests/test-funs.lisp)
+        # and exec it with :search nil, so it must be an absolute
+        # WINDOWS path to the sh shim.  A Unix path there would make
+        # wine exec the host binary directly: that bypasses the shims
+        # (no env bridge, so subr.sh dies on SBCL_SOFTWARE_TYPE) and
+        # yields a process handle that never signals — run-program
+        # then waits forever.
+        SHELL="$("${WINE:-wine}" winepath -w "$HERE/shims/sh.exe")"
+        export WRUN_RUNTIME TEST_SBCL_RUNTIME SHELL
         cd tests
         # `pure` / `impure` sugar — the two halves of the suite: pure
         # runs inside the test driver itself, impure (sh tests

@@ -88,7 +88,11 @@ the emulated profiles: impure and
 sh tests re-exec the target lisp *from itself*, which works under
 Wine (`CreateProcess` inside the Wine world) and on a real device
 (native), but not under qemu-user without `binfmt_misc` — there only
-the pure half of the suite runs.
+the pure half of the suite runs.  Under Wine the sh tests run
+through the `sh` shim (`SHELL` is pointed at it), with the Windows
+environment bridged across (see forwarder.c); the few that exec a
+binary they just dumped (`./foo.core`) still fail honestly — a Unix
+`sh` cannot exec a Windows PE without `binfmt_misc`.
 
 Useful knobs (environment): `WINEPREFIX` (defaults to
 `~/.wine-wrun`), `WINE`, `WINEDEBUG` (defaults to `-all`),
