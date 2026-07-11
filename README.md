@@ -64,11 +64,20 @@ Three small mechanisms, one per process-boundary:
 ```sh
 make                       # build forwarder, generate shims/
 ./wbuild.sh ~/src/sbcl     # ... make.sh args if needed
+./wbuild.sh ~/src/sbcl --run   # poke the result: a REPL via run-sbcl.sh
 ```
 
-Useful knobs (environment): `WINEPREFIX` (defaults to `~/.wine`),
-`WINE`, `WINEDEBUG` (defaults to `-all`), `WRUN_TRIPLET` (defaults to
-`x86_64-w64-mingw32`), `SBCL_MAKE_JOBS=-j4`.
+`--run` (every build script has it) execs the tree's `run-sbcl.sh`
+instead of `make.sh`, under the exact environment the build had —
+the runner, the wine prefix, and the toolchain farm on `PATH` — so
+poking that compiles C on the fly (sb-grovel contribs) keeps using
+the cross compiler through the shims.  Extra arguments after `--run`
+are passed to SBCL.
+
+Useful knobs (environment): `WINEPREFIX` (defaults to
+`~/.wine-wrun`), `WINE`, `WINEDEBUG` (defaults to `-all`),
+`WRUN_TRIPLET` (defaults to `x86_64-w64-mingw32`),
+`SBCL_MAKE_JOBS=-j4`.
 
 ## Container (fresh toolchain, reproducible)
 
@@ -78,6 +87,7 @@ wine, mingw-w64, a host SBCL and the qemu-user toolchain:
 ```sh
 podman build -t wrun .
 podman run --rm -v ~/src/sbcl:/src --userns=keep-id wrun /src
+podman run --rm -it -v ~/src/sbcl:/src --userns=keep-id wrun /src --run
 ```
 
 The default entrypoint builds the Windows target.  The same image

@@ -4,6 +4,7 @@
 # serves as the "CPU" for freshly-built target binaries only.
 #
 # Usage: qbuild.sh /path/to/sbcl-tree [extra make.sh args...]
+#        qbuild.sh /path/to/sbcl-tree --run [sbcl options...]
 #
 # Requires: a cross gcc for the target triplet, a RECENT qemu-user
 # (6.2 futex-livelocks threaded SBCL; 7.2 fork-corrupts x86-64
@@ -49,4 +50,9 @@ export PATH
 export SBCL_RUNNER="$HERE/qemu-run"
 
 cd "$tree"
+# --run instead of make.sh args: run-sbcl.sh under the build's own
+# environment (SBCL_RUNNER, toolchain farm on PATH) — see wbuild.sh.
+case "${1:-}" in
+    --run) shift; exec sh run-sbcl.sh "$@" ;;
+esac
 exec sh make.sh --arch="$WRUN_ARCH" "$@"

@@ -15,6 +15,7 @@
 # for the chosen API level.
 #
 # Usage: abuild.sh /path/to/sbcl-tree [extra make.sh args...]
+#        abuild.sh /path/to/sbcl-tree --run [sbcl options...]
 #
 # Requires: an Android NDK, a RECENT qemu-user (>= 10.x, see README),
 # a host SBCL >= 2.5, an SBCL tree with SBCL_RUNNER support, and a
@@ -88,4 +89,9 @@ fi
 tls=
 [ "$WRUN_ANDROID_API" -lt 29 ] && tls=--without-gcc-tls
 cd "$tree"
+# --run instead of make.sh args: run-sbcl.sh under the build's own
+# environment (runner, NDK farm on PATH) — see wbuild.sh.
+case "${1:-}" in
+    --run) shift; exec sh run-sbcl.sh "$@" ;;
+esac
 exec sh make.sh --arch="$WRUN_ARCH" $tls "$@"

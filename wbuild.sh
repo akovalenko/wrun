@@ -2,11 +2,12 @@
 # wbuild.sh — build SBCL for x86-64 Windows on a Linux host.
 #
 # Usage: wbuild.sh /path/to/sbcl-tree [extra make.sh args...]
+#        wbuild.sh /path/to/sbcl-tree --run [sbcl options...]
 #
 # Requires: mingw-w64 cross gcc, wine, a host SBCL, and an SBCL tree
 # with the SBCL_OS/SBCL_RUNNER support (see README).  Run `make`
 # first (forwarder + shims + toolchain dir).  WINEPREFIX is respected
-# if set; wine creates a default one otherwise.
+# if set; the default is ~/.wine-wrun (wine creates it on first use).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 tree="$1"; shift
@@ -45,4 +46,12 @@ WINEPATH="$("${WINE:-wine}" winepath -w "$HERE/shims")"
 export WINEPATH
 
 cd "$tree"
+# --run instead of make.sh args: poke the freshly-built target in the
+# very environment the build had.  run-sbcl.sh honors SBCL_RUNNER, and
+# run-program spawns from the REPL (sb-grovel's $CC) keep resolving
+# through the shims to the cross toolchain — the forwarder spawns bare
+# tool names via the Unix PATH set up above.
+case "${1:-}" in
+    --run) shift; exec sh run-sbcl.sh "$@" ;;
+esac
 exec sh make.sh --arch=x86-64 "$@"
