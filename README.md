@@ -81,7 +81,10 @@ own `TEST_SBCL_RUNTIME` knob to a stand-in (`target-sbcl`) that
 reattaches the runner — no changes to the SBCL tree involved.
 Arguments pass through to `run-tests.sh`; naming files selects them,
 and contrib tests are ordinary suite files: `--tests
-sb-posix.impure.lisp`.  Caveat for the emulated profiles: impure and
+sb-posix.impure.lisp`.  `--tests pure` / `--tests impure` select the
+two halves of the suite: pure runs inside the test driver itself,
+impure (sh tests included) is the self-spawning half.  Caveat for
+the emulated profiles: impure and
 sh tests re-exec the target lisp *from itself*, which works under
 Wine (`CreateProcess` inside the Wine world) and on a real device
 (native), but not under qemu-user without `binfmt_misc` — there only
@@ -101,6 +104,7 @@ wine, mingw-w64, a host SBCL and the qemu-user toolchain:
 podman build -t wrun .
 podman run --rm -v ~/src/sbcl:/src --userns=keep-id wrun /src
 podman run --rm -it -v ~/src/sbcl:/src --userns=keep-id wrun /src --run
+podman run --rm -v ~/src/sbcl:/src --userns=keep-id wrun /src --tests pure
 ```
 
 The default entrypoint builds the Windows target.  The same image

@@ -5,7 +5,7 @@
 #
 # Usage: qbuild.sh /path/to/sbcl-tree [extra make.sh args...]
 #        qbuild.sh /path/to/sbcl-tree --run [sbcl options...]
-#        qbuild.sh /path/to/sbcl-tree --tests [run-tests.sh args...]
+#        qbuild.sh /path/to/sbcl-tree --tests [pure|impure] [run-tests.sh args...]
 #
 # Requires: a cross gcc for the target triplet, a RECENT qemu-user
 # (6.2 futex-livelocks threaded SBCL; 7.2 fork-corrupts x86-64
@@ -64,6 +64,12 @@ case "${1:-}" in
         TEST_SBCL_RUNTIME="$HERE/target-sbcl"
         export WRUN_RUNTIME TEST_SBCL_RUNTIME
         cd tests
+        # `pure` / `impure` sugar — see wbuild.sh; here `pure` is the
+        # half that can actually run without binfmt_misc.
+        case "${1:-}" in
+            pure) shift; set -- *.pure.lisp *.pure-cload.lisp "$@" ;;
+            impure) shift; set -- --skip-to impure "$@" ;;
+        esac
         exec sh run-tests.sh "$@" ;;
 esac
 exec sh make.sh --arch="$WRUN_ARCH" "$@"

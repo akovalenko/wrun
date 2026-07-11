@@ -16,7 +16,7 @@
 #
 # Usage: abuild.sh /path/to/sbcl-tree [extra make.sh args...]
 #        abuild.sh /path/to/sbcl-tree --run [sbcl options...]
-#        abuild.sh /path/to/sbcl-tree --tests [run-tests.sh args...]
+#        abuild.sh /path/to/sbcl-tree --tests [pure|impure] [run-tests.sh args...]
 #
 # Requires: an Android NDK, a RECENT qemu-user (>= 10.x, see README),
 # a host SBCL >= 2.5, an SBCL tree with SBCL_RUNNER support, and a
@@ -103,6 +103,12 @@ case "${1:-}" in
         TEST_SBCL_RUNTIME="$HERE/target-sbcl"
         export WRUN_RUNTIME TEST_SBCL_RUNTIME
         cd tests
+        # `pure` / `impure` sugar — see wbuild.sh; under qemu only
+        # `pure` runs, on a real device (WRUN_DEVICE) both halves do.
+        case "${1:-}" in
+            pure) shift; set -- *.pure.lisp *.pure-cload.lisp "$@" ;;
+            impure) shift; set -- --skip-to impure "$@" ;;
+        esac
         exec sh run-tests.sh "$@" ;;
 esac
 exec sh make.sh --arch="$WRUN_ARCH" $tls "$@"

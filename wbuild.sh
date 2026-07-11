@@ -3,7 +3,7 @@
 #
 # Usage: wbuild.sh /path/to/sbcl-tree [extra make.sh args...]
 #        wbuild.sh /path/to/sbcl-tree --run [sbcl options...]
-#        wbuild.sh /path/to/sbcl-tree --tests [run-tests.sh args...]
+#        wbuild.sh /path/to/sbcl-tree --tests [pure|impure] [run-tests.sh args...]
 #
 # Requires: mingw-w64 cross gcc, wine, a host SBCL, and an SBCL tree
 # with the SBCL_OS/SBCL_RUNNER support (see README).  Run `make`
@@ -65,6 +65,13 @@ case "${1:-}" in
         TEST_SBCL_RUNTIME="$HERE/target-sbcl"
         export WRUN_RUNTIME TEST_SBCL_RUNTIME
         cd tests
+        # `pure` / `impure` sugar — the two halves of the suite: pure
+        # runs inside the test driver itself, impure (sh tests
+        # included) is the self-spawning half.
+        case "${1:-}" in
+            pure) shift; set -- *.pure.lisp *.pure-cload.lisp "$@" ;;
+            impure) shift; set -- --skip-to impure "$@" ;;
+        esac
         exec sh run-tests.sh "$@" ;;
 esac
 exec sh make.sh --arch=x86-64 "$@"
