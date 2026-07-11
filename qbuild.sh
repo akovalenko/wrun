@@ -5,6 +5,7 @@
 #
 # Usage: qbuild.sh /path/to/sbcl-tree [extra make.sh args...]
 #        qbuild.sh /path/to/sbcl-tree --run [sbcl options...]
+#        qbuild.sh /path/to/sbcl-tree --tests [run-tests.sh args...]
 #
 # Requires: a cross gcc for the target triplet, a RECENT qemu-user
 # (6.2 futex-livelocks threaded SBCL; 7.2 fork-corrupts x86-64
@@ -50,9 +51,19 @@ export PATH
 export SBCL_RUNNER="$HERE/qemu-run"
 
 cd "$tree"
-# --run instead of make.sh args: run-sbcl.sh under the build's own
-# environment (SBCL_RUNNER, toolchain farm on PATH) — see wbuild.sh.
+# --run / --tests: run-sbcl.sh / the regression suite under the
+# build's own environment (SBCL_RUNNER, toolchain farm on PATH) — see
+# wbuild.sh.  Without binfmt_misc only the pure half of the suite can
+# run here: impure and sh tests re-exec the target lisp FROM ITSELF,
+# and guest-exec-guest is not a thing under plain qemu-user.
 case "${1:-}" in
     --run) shift; exec sh run-sbcl.sh "$@" ;;
+    --tests)
+        shift
+        WRUN_RUNTIME="$PWD/src/runtime/sbcl"
+        TEST_SBCL_RUNTIME="$HERE/target-sbcl"
+        export WRUN_RUNTIME TEST_SBCL_RUNTIME
+        cd tests
+        exec sh run-tests.sh "$@" ;;
 esac
 exec sh make.sh --arch="$WRUN_ARCH" "$@"

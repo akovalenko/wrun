@@ -16,6 +16,7 @@
 #
 # Usage: abuild.sh /path/to/sbcl-tree [extra make.sh args...]
 #        abuild.sh /path/to/sbcl-tree --run [sbcl options...]
+#        abuild.sh /path/to/sbcl-tree --tests [run-tests.sh args...]
 #
 # Requires: an Android NDK, a RECENT qemu-user (>= 10.x, see README),
 # a host SBCL >= 2.5, an SBCL tree with SBCL_RUNNER support, and a
@@ -89,9 +90,19 @@ fi
 tls=
 [ "$WRUN_ANDROID_API" -lt 29 ] && tls=--without-gcc-tls
 cd "$tree"
-# --run instead of make.sh args: run-sbcl.sh under the build's own
-# environment (runner, NDK farm on PATH) — see wbuild.sh.
+# --run / --tests: run-sbcl.sh / the regression suite under the
+# build's own environment (runner, NDK farm on PATH) — see wbuild.sh.
+# Qemu profile: pure tests only, impure/sh tests re-exec the target
+# lisp from itself (guest-exec-guest needs binfmt_misc).  Device
+# profile: the whole suite runs natively on the device.
 case "${1:-}" in
     --run) shift; exec sh run-sbcl.sh "$@" ;;
+    --tests)
+        shift
+        WRUN_RUNTIME="$PWD/src/runtime/sbcl"
+        TEST_SBCL_RUNTIME="$HERE/target-sbcl"
+        export WRUN_RUNTIME TEST_SBCL_RUNTIME
+        cd tests
+        exec sh run-tests.sh "$@" ;;
 esac
 exec sh make.sh --arch="$WRUN_ARCH" $tls "$@"

@@ -64,7 +64,8 @@ Three small mechanisms, one per process-boundary:
 ```sh
 make                       # build forwarder, generate shims/
 ./wbuild.sh ~/src/sbcl     # ... make.sh args if needed
-./wbuild.sh ~/src/sbcl --run   # poke the result: a REPL via run-sbcl.sh
+./wbuild.sh ~/src/sbcl --run     # poke the result: a REPL via run-sbcl.sh
+./wbuild.sh ~/src/sbcl --tests   # the regression suite via tests/run-tests.sh
 ```
 
 `--run` (every build script has it) execs the tree's `run-sbcl.sh`
@@ -73,6 +74,18 @@ the runner, the wine prefix, and the toolchain farm on `PATH` — so
 poking that compiles C on the fly (sb-grovel contribs) keeps using
 the cross compiler through the shims.  Extra arguments after `--run`
 are passed to SBCL.
+
+`--tests` (same idea) runs the regression suite: `tests/run-tests.sh`
+under the build environment, with the suite's runtime swapped via its
+own `TEST_SBCL_RUNTIME` knob to a stand-in (`target-sbcl`) that
+reattaches the runner — no changes to the SBCL tree involved.
+Arguments pass through to `run-tests.sh`; naming files selects them,
+and contrib tests are ordinary suite files: `--tests
+sb-posix.impure.lisp`.  Caveat for the emulated profiles: impure and
+sh tests re-exec the target lisp *from itself*, which works under
+Wine (`CreateProcess` inside the Wine world) and on a real device
+(native), but not under qemu-user without `binfmt_misc` — there only
+the pure half of the suite runs.
 
 Useful knobs (environment): `WINEPREFIX` (defaults to
 `~/.wine-wrun`), `WINE`, `WINEDEBUG` (defaults to `-all`),

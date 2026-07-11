@@ -1,0 +1,7 @@
+#!/bin/sh
+# target-sbcl — a TEST_SBCL_RUNTIME stand-in for the SBCL test suite:
+# looks like the runtime binary to tests/subr.sh, delegates execution
+# to the profile's runner.  The build scripts' --tests verb sets both
+# knobs; WRUN_RUNTIME names the runtime the profile actually built
+# (an absolute path under the tree — device-run translates those).
+exec "${SBCL_RUNNER:?}" "${WRUN_RUNTIME:?}" "$@"

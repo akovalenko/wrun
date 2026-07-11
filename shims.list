@@ -5,3 +5,6 @@ gcc
 cc
 # handy for tests / interactive use:
 cat
+# the suite's sh tests: the child lisp spawns `sh <file>.test.sh`;
+# the script then re-enters the target through TEST_SBCL_RUNTIME.
+sh

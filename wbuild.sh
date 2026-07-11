@@ -3,6 +3,7 @@
 #
 # Usage: wbuild.sh /path/to/sbcl-tree [extra make.sh args...]
 #        wbuild.sh /path/to/sbcl-tree --run [sbcl options...]
+#        wbuild.sh /path/to/sbcl-tree --tests [run-tests.sh args...]
 #
 # Requires: mingw-w64 cross gcc, wine, a host SBCL, and an SBCL tree
 # with the SBCL_OS/SBCL_RUNNER support (see README).  Run `make`
@@ -46,12 +47,24 @@ WINEPATH="$("${WINE:-wine}" winepath -w "$HERE/shims")"
 export WINEPATH
 
 cd "$tree"
-# --run instead of make.sh args: poke the freshly-built target in the
-# very environment the build had.  run-sbcl.sh honors SBCL_RUNNER, and
-# run-program spawns from the REPL (sb-grovel's $CC) keep resolving
-# through the shims to the cross toolchain — the forwarder spawns bare
-# tool names via the Unix PATH set up above.
+# --run / --tests instead of make.sh args: poke or test the freshly-
+# built target in the very environment the build had.  run-sbcl.sh
+# honors SBCL_RUNNER, and run-program spawns from the target lisp
+# (sb-grovel's $CC, the suite's `sh`) keep resolving through the shims
+# to Unix tools — the forwarder spawns bare tool names via the Unix
+# PATH set up above.  For the suite, tests/subr.sh takes its "runtime"
+# from TEST_SBCL_RUNTIME: the target-sbcl stand-in reattaches the
+# runner, and WRUN_RUNTIME pins the runtime this profile builds
+# (subr.sh itself would guess .exe-if-present — ambiguous in a tree
+# carrying both targets).
 case "${1:-}" in
     --run) shift; exec sh run-sbcl.sh "$@" ;;
+    --tests)
+        shift
+        WRUN_RUNTIME="$PWD/src/runtime/sbcl.exe"
+        TEST_SBCL_RUNTIME="$HERE/target-sbcl"
+        export WRUN_RUNTIME TEST_SBCL_RUNTIME
+        cd tests
+        exec sh run-tests.sh "$@" ;;
 esac
 exec sh make.sh --arch=x86-64 "$@"
