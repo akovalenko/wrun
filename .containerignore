@@ -1,0 +1,12 @@
+# Keep the COPY context to sources.  Everything below is regenerated
+# inside the images right after COPY (make + gen-toolchain.sh), and
+# host copies would only bust the COPY layer cache — or worse, ride
+# into /opt/wrun as farm wrappers with host paths baked in, for
+# triplets the image build does not itself regenerate.  The list
+# mirrors `make clean`, plus repo and local-tool state.
+a.out
+a.out.so
+shims
+toolchain
+.git
+.claude
