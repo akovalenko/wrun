@@ -8,3 +8,7 @@ cat
 # the suite's sh tests: the child lisp spawns `sh <file>.test.sh`;
 # the script then re-enters the target through TEST_SBCL_RUNTIME.
 sh
+# bare names the suite's run-program tests spawn (run-program.test.sh):
+true
+false
+printf
